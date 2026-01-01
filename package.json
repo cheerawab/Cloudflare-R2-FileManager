@@ -1,0 +1,56 @@
+{
+    "name": "r2-file-manager",
+    "version": "1.0.0",
+    "description": "Cloudflare R2 Visual Editor",
+    "main": "./out/main/index.js",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/cheerawab/Cloudflare-R2-FileManager.git"
+    },
+    "author": "Cheerawab",
+    "homepage": "https://electron-vite.org",
+    "scripts": {
+        "format": "prettier --write .",
+        "lint": "eslint . --ext .js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts --fix",
+        "start": "electron-vite preview",
+        "dev": "electron-vite dev",
+        "build": "electron-vite build",
+        "postinstall": "electron-builder install-app-deps",
+        "build:unpack": "npm run build && electron-builder --dir",
+        "build:win": "npm run build && electron-builder --win",
+        "build:mac": "npm run build && electron-builder --mac",
+        "build:linux": "npm run build && electron-builder --linux"
+    },
+    "dependencies": {
+        "@aws-sdk/client-s3": "^3.400.0",
+        "@aws-sdk/lib-storage": "^3.958.0",
+        "@aws-sdk/s3-request-presigner": "^3.958.0",
+        "@electron-toolkit/preload": "^3.0.0",
+        "@electron-toolkit/utils": "^3.0.0",
+        "@radix-ui/react-slot": "^1.0.2",
+        "class-variance-authority": "^0.7.0",
+        "clsx": "^2.1.0",
+        "electron-store": "^8.1.0",
+        "electron-updater": "^6.1.7",
+        "lucide-react": "^0.300.0",
+        "mime-types": "^3.0.2",
+        "react": "^18.2.0",
+        "react-dom": "^18.2.0",
+        "tailwind-merge": "^2.2.0",
+        "tailwindcss-animate": "^1.0.7"
+    },
+    "devDependencies": {
+        "@electron-toolkit/eslint-config": "^1.0.2",
+        "@vitejs/plugin-react": "^4.2.1",
+        "autoprefixer": "^10.4.17",
+        "electron": "^28.2.0",
+        "electron-builder": "^24.9.1",
+        "electron-vite": "^2.0.0",
+        "eslint": "^8.56.0",
+        "eslint-plugin-react": "^7.33.2",
+        "postcss": "^8.4.35",
+        "prettier": "^3.2.5",
+        "tailwindcss": "^3.4.1",
+        "vite": "^5.0.12"
+    }
+}
