@@ -4,11 +4,10 @@ import { Input } from './components/ui/input'
 import { Button } from './components/ui/button'
 import { Label } from './components/ui/label'
 import {
-    Upload, Download, Trash, File as FileIcon,
-    LogOut, Loader2, Database,
-    Search, Settings, HardDrive, Info,
-    ArrowUp, ArrowDown, ArrowUpDown, Folder,
-    Sun, Moon, Globe, Check, ChevronDown, ChevronUp
+    Folder, File as FileIcon, ChevronRight, Upload, Trash2 as Trash, Download,
+    ArrowUpDown, Settings, LogOut, Search, RefreshCw, X,
+    Check, ChevronDown, FolderPlus, Database, HardDrive,
+    Info, Loader2, ArrowUp, ArrowDown, Sun, Moon, Globe, ChevronUp
 } from 'lucide-react'
 
 // Import all locale files using Vite's glob import
@@ -36,17 +35,71 @@ function App() {
     const [folders, setFolders] = useState([])
     const [currentBucket, setCurrentBucket] = useState(null)
     const [currentPath, setCurrentPath] = useState('')
+    const [selectedObjects, setSelectedObjects] = useState(new Set())
     const [rememberMe, setRememberMe] = useState(false)
+
+    // New Folder Dialog State
+    const [showNewFolderDialog, setShowNewFolderDialog] = useState(false)
+    const [newFolderName, setNewFolderName] = useState('')
+    const [creatingFolder, setCreatingFolder] = useState(false)
+
     const [searchTerm, setSearchTerm] = useState('')
 
     const [sortConfig, setSortConfig] = useState({ key: 'LastModified', direction: 'desc' })
     const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark')
-    const [language, setLanguage] = useState(() => localStorage.getItem('language') || 'en')
+    const [language, setLanguage] = useState(localStorage.getItem('language') || 'en')
+    const [updateStatus, setUpdateStatus] = useState('idle') // idle, checking, available, not-available, downloading, downloaded, error
+    const [updateInfo, setUpdateInfo] = useState(null)
+    const [downloadProgress, setDownloadProgress] = useState(0)
+    const [version, setVersion] = useState('')
 
     // Translation helper
-    const t = (key) => {
-        const langData = locales[language] || locales['en']
-        return langData[key] || key
+    const t = (key, params = {}) => {
+        let str = locales[language]?.[key] || locales['en']?.[key] || key
+        Object.keys(params).forEach(k => {
+            str = str.replace(`{${k}}`, params[k])
+        })
+        return str
+    }
+
+    useEffect(() => {
+        // Get app version
+        window.api.getVersion().then(v => setVersion(`v${v}`))
+
+        // Listen for update events
+        const removeListener = window.api.updater.onStatusChange((data) => {
+            console.log('Update Status:', data)
+            setUpdateStatus(data.status)
+            if (data.info) setUpdateInfo(data.info)
+            if (data.progress) setDownloadProgress(data.progress.percent)
+        })
+        return () => removeListener()
+    }, [])
+
+    const handleCheckUpdate = async () => {
+        setUpdateStatus('checking')
+
+        // Timeout after 30 seconds
+        const timeoutId = setTimeout(() => {
+            setUpdateStatus(prev => {
+                if (prev === 'checking') return 'timeout'
+                return prev
+            })
+        }, 3000)
+
+        // Store timeout ID to clear it if response comes (optional/advanced, but simple replacement works for now)
+        // Since we rely on setUpdateStatus from IPC event to override, we just need to make sure we don't overwrite a NEW status with timeout.
+        // pass.
+
+        await window.api.updater.checkForUpdates()
+    }
+
+    const handleDownloadUpdate = async () => {
+        await window.api.updater.downloadUpdate()
+    }
+
+    const handleQuitAndInstall = async () => {
+        await window.api.updater.quitAndInstall()
     }
 
     const availableLanguages = Object.keys(locales)
@@ -89,6 +142,36 @@ function App() {
             return "Invalid Secret Access Key. Must be 64-char hex string."
         }
         return null
+    }
+
+    const handleCreateFolder = async () => {
+        if (!newFolderName.trim()) return
+
+        setCreatingFolder(true)
+        try {
+            const prefix = currentPath
+            const folderPath = prefix + newFolderName.trim()
+
+            const result = await window.api.createFolder({
+                credentials: credentials,
+                bucketName: currentBucket,
+                folderPath: folderPath
+            })
+
+            if (result.success) {
+                setShowNewFolderDialog(false)
+                setNewFolderName('')
+                await loadFiles(currentBucket, currentPath)
+            } else {
+                console.error('Failed to create folder:', result.error)
+                setError(`Failed to create folder: ${result.error}`)
+            }
+        } catch (err) {
+            console.error(err)
+            setError('Failed to create folder')
+        } finally {
+            setCreatingFolder(false)
+        }
     }
 
     const loadFiles = async (bucket, prefix = '') => {
@@ -214,7 +297,7 @@ function App() {
     }
 
     const handleDelete = async (key) => {
-        if (!confirm(`Delete "${key}"?`)) return
+        if (!confirm(t('deleteFileConfirm', { key }))) return
         setLoading(true)
         setError(null)
         try {
@@ -225,6 +308,29 @@ function App() {
                 setError(`Delete failed: ${result.error}`)
             }
         } catch (err) { setError('Delete failed') } finally { setLoading(false) }
+    }
+
+    const handleDeleteFolder = async (folderPath) => {
+        if (!confirm(t('deleteFolderConfirm', { folder: folderPath }))) return
+        setLoading(true)
+        setError(null)
+        try {
+            const result = await window.api.deleteFolder({
+                credentials,
+                bucketName: currentBucket,
+                folderPath
+            })
+            if (result.success) {
+                await loadFiles(currentBucket, currentPath)
+            } else {
+                setError(`Delete folder failed: ${result.error}`)
+            }
+        } catch (err) {
+            console.error(err)
+            setError('Delete folder failed')
+        } finally {
+            setLoading(false)
+        }
     }
 
     const handleDownload = async (key) => {
@@ -480,6 +586,13 @@ function App() {
                                         onChange={(e) => setSearchTerm(e.target.value)}
                                     />
                                 </div>
+                                <Button
+                                    onClick={() => setShowNewFolderDialog(true)}
+                                    variant="outline"
+                                    className="rounded-full px-4 border-white/10 hover:bg-white/5"
+                                >
+                                    <FolderPlus className="mr-2 h-4 w-4" /> {t('createFolder')}
+                                </Button>
                                 <Button onClick={handleUpload} disabled={loading} className="bg-blue-600 hover:bg-blue-500 rounded-full px-6">
                                     <Upload className="mr-2 h-4 w-4" /> {t('upload')}
                                 </Button>
@@ -576,7 +689,21 @@ function App() {
                                                 {folder.replace(currentPath, '').replace('/', '')}
                                             </span>
                                         </div>
-                                        <div className="col-span-6 text-muted-foreground text-xs italic">Folder</div>
+                                        <div className="col-span-5 text-muted-foreground text-xs italic">Folder</div>
+                                        <div className="col-span-1 flex justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-8 w-8 hover:bg-red-500/20 hover:text-red-400"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleDeleteFolder(folder);
+                                                }}
+                                                title={t('deleteFolder')}
+                                            >
+                                                <Trash className="h-4 w-4" />
+                                            </Button>
+                                        </div>
                                     </div>
                                 ))}
 
@@ -676,6 +803,60 @@ function App() {
                                     </div>
                                 </div>
 
+                                {/* Update Section */}
+                                <div className="flex items-center justify-between p-4 rounded-2xl bg-white/5 border border-white/10">
+                                    <div className="space-y-1">
+                                        <h3 className="font-medium">{t('checkForUpdates')}</h3>
+                                        <div className="text-sm text-muted-foreground">
+                                            {updateStatus === 'idle' && (updateInfo ? `v${updateInfo.version}` : t('version') + ' v1.0.0')}
+                                            {updateStatus === 'checking' && t('connecting')}
+                                            {updateStatus === 'not-available' && t('upToDate')}
+                                            {updateStatus === 'available' && t('updateAvailable')}
+                                            {updateStatus === 'downloading' && `${t('downloading')} ${Math.round(downloadProgress)}%`}
+                                            {updateStatus === 'downloaded' && t('downloaded')}
+                                            {updateStatus === 'error' && t('checkError')}
+                                            {updateStatus === 'timeout' && t('checkTimeout')}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        {updateStatus === 'idle' || updateStatus === 'not-available' || updateStatus === 'error' || updateStatus === 'timeout' ? (
+                                            <Button
+                                                variant="outline"
+                                                className="rounded-full border-white/10 hover:bg-white/5"
+                                                onClick={handleCheckUpdate}
+                                            >
+                                                <RefreshCw className="h-4 w-4 mr-2" />
+                                                Check
+                                            </Button>
+                                        ) : updateStatus === 'checking' ? (
+                                            <Button disabled variant="outline" className="rounded-full border-white/10">
+                                                <Loader2 className="h-4 w-4 animate-spin" />
+                                            </Button>
+                                        ) : updateStatus === 'available' ? (
+                                            <Button
+                                                className="rounded-full bg-blue-600 hover:bg-blue-500 text-white border-0"
+                                                onClick={handleDownloadUpdate}
+                                            >
+                                                <Download className="h-4 w-4 mr-2" />
+                                                {t('download')}
+                                            </Button>
+                                        ) : updateStatus === 'downloading' ? (
+                                            <Button disabled variant="outline" className="rounded-full border-white/10">
+                                                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                                {Math.round(downloadProgress)}%
+                                            </Button>
+                                        ) : updateStatus === 'downloaded' ? (
+                                            <Button
+                                                className="rounded-full bg-green-600 hover:bg-green-500 text-white border-0"
+                                                onClick={handleQuitAndInstall}
+                                            >
+                                                <RefreshCw className="h-4 w-4 mr-2" />
+                                                {t('restartToUpdate')}
+                                            </Button>
+                                        ) : null}
+                                    </div>
+                                </div>
+
                                 <div className="flex items-center justify-between p-4 rounded-2xl bg-white/5 border border-white/10">
                                     <div className="space-y-1">
                                         <h3 className="font-medium">{t('about')}</h3>
@@ -685,7 +866,19 @@ function App() {
                                         <div className="text-xs text-muted-foreground">Cheerawab</div>
                                         <div className="text-sm font-medium">{t('icon')}</div>
                                         <div className="text-xs text-muted-foreground">Gemini Nano Banana Pro</div>
-
+                                        <div className="text-sm font-medium">{t('version')}</div>
+                                        <div className="text-xs text-muted-foreground">{version}</div>
+                                        <div className="text-sm font-medium">{t('license')}</div>
+                                        <div className="text-xs text-muted-foreground">MIT License</div>
+                                        <div className="text-sm font-medium">{t('github')}</div>
+                                        <a
+                                            href="https://github.com/cheerawab/Cloudflare-R2-FileManager"
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="text-xs text-muted-foreground hover:underline"
+                                        >
+                                            https://github.com/cheerawab/Cloudflare-R2-FileManager
+                                        </a>
                                     </div>
                                 </div>
                             </div>
@@ -693,6 +886,53 @@ function App() {
                     )}
                 </div>
             </main>
+            {/* New Folder Dialog */}
+            {showNewFolderDialog && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+                    <div className="bg-[#1C1C1C] border border-white/10 rounded-xl p-6 w-[400px] shadow-2xl space-y-4">
+                        <h2 className="text-lg font-semibold text-white">{t('createFolder')}</h2>
+                        <div className="space-y-2">
+                            <label className="text-xs text-white/50 uppercase font-medium tracking-wider">{t('folderName')}</label>
+                            <div className="relative group">
+                                <Folder className="absolute left-3 top-2.5 w-4 h-4 text-white/30 group-focus-within:text-white/70 transition-colors" />
+                                <input
+                                    type="text"
+                                    value={newFolderName}
+                                    onChange={(e) => setNewFolderName(e.target.value)}
+                                    placeholder="e.g. images"
+                                    className="w-full bg-black/20 border border-white/10 rounded-lg py-2 pl-9 pr-3 text-sm text-white focus:outline-none focus:border-white/30 focus:ring-1 focus:ring-white/30 transition-all placeholder:text-white/20"
+                                    autoFocus
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') handleCreateFolder()
+                                        if (e.key === 'Escape') setShowNewFolderDialog(false)
+                                    }}
+                                />
+                            </div>
+                        </div>
+                        <div className="flex justify-end gap-2 pt-2">
+                            <Button
+                                variant="ghost"
+                                onClick={() => setShowNewFolderDialog(false)}
+                                className="text-white/70 hover:text-white hover:bg-white/10"
+                            >
+                                {t('cancel')}
+                            </Button>
+                            <Button
+                                onClick={handleCreateFolder}
+                                disabled={creatingFolder || !newFolderName.trim()}
+                                className="bg-white text-black hover:bg-white/90"
+                            >
+                                {creatingFolder ? (
+                                    <RefreshCw className="w-4 h-4 animate-spin mr-2" />
+                                ) : (
+                                    <FolderPlus className="w-4 h-4 mr-2" />
+                                )}
+                                {t('create')}
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

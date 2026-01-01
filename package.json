@@ -1,7 +1,7 @@
 {
     "name": "r2-file-manager",
-    "version": "1.0.1",
-    "description": "Cloudflare R2 Visual Editor",
+    "version": "1.0.2",
+    "description": "Cloudflare R2 File Manager",
     "main": "./out/main/index.js",
     "repository": {
         "type": "git",

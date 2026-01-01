@@ -10,9 +10,33 @@ const mime = require('mime-types')
 const { dialog } = require('electron')
 const { DeleteObjectCommand } = require('@aws-sdk/client-s3')
 const { Upload } = require('@aws-sdk/lib-storage')
+const { autoUpdater } = require('electron-updater')
+const log = require('electron-log')
+
+// Configure logging
+try {
+    log.transports.file.level = 'info'
+    autoUpdater.logger = log
+    autoUpdater.autoDownload = false
+    // Enable update checking in dev
+    if (is.dev) {
+        autoUpdater.forceDevUpdateConfig = true
+        // Mock APPIMAGE env for Linux dev to bypass strict check
+        if (process.platform === 'linux' && !process.env.APPIMAGE) {
+            process.env.APPIMAGE = join(__dirname, '../../dist/Mock.AppImage')
+        }
+    }
+} catch (e) {
+    console.error('Failed to configure autoUpdater:', e)
+}
 
 const store = new Store()
 let mainWindow
+
+
+
+
+
 
 function createWindow() {
     mainWindow = new BrowserWindow({
@@ -156,6 +180,59 @@ ipcMain.handle('r2:uploadFile', async (_, { credentials, bucketName, filePath, p
     }
 })
 
+ipcMain.handle('r2:createFolder', async (_, { credentials, bucketName, folderPath }) => {
+    try {
+        const s3 = getS3Client(credentials)
+        // Ensure trailing slash
+        const key = folderPath.endsWith('/') ? folderPath : `${folderPath}/`
+
+        await s3.send(new PutObjectCommand({
+            Bucket: bucketName,
+            Key: key,
+            Body: '' // Empty body
+        }))
+        return { success: true }
+    } catch (error) {
+        console.error('Create Folder Error:', error)
+        return { success: false, error: error.message }
+    }
+})
+
+ipcMain.handle('r2:deleteFolder', async (_, { credentials, bucketName, folderPath }) => {
+    try {
+        const s3 = getS3Client(credentials)
+        // Ensure trailing slash for safety so we don't delete similarly named folders
+        const prefix = folderPath.endsWith('/') ? folderPath : `${folderPath}/`
+
+        let continuationToken = undefined
+        do {
+            const listCommand = new ListObjectsV2Command({
+                Bucket: bucketName,
+                Prefix: prefix,
+                ContinuationToken: continuationToken
+            })
+            const listData = await s3.send(listCommand)
+
+            if (listData.Contents && listData.Contents.length > 0) {
+                const deleteCommand = new DeleteObjectsCommand({
+                    Bucket: bucketName,
+                    Delete: {
+                        Objects: listData.Contents.map(obj => ({ Key: obj.Key }))
+                    }
+                })
+                await s3.send(deleteCommand)
+            }
+
+            continuationToken = listData.NextContinuationToken
+        } while (continuationToken)
+
+        return { success: true }
+    } catch (error) {
+        console.error('Delete Folder Error:', error)
+        return { success: false, error: error.message }
+    }
+})
+
 ipcMain.handle('r2:deleteFile', async (_, { credentials, bucketName, key }) => {
     try {
         const s3 = getS3Client(credentials)
@@ -209,6 +286,39 @@ ipcMain.handle('r2:downloadFile', async (_, { credentials, bucketName, key }) =>
     }
 })
 
+// Auto Updater IPC
+ipcMain.handle('updater:check', () => {
+    autoUpdater.checkForUpdates()
+})
+
+ipcMain.handle('updater:quitAndInstall', () => {
+    autoUpdater.quitAndInstall()
+})
+
+ipcMain.handle('updater:download', () => {
+    autoUpdater.downloadUpdate()
+})
+
+// Forward events to renderer
+autoUpdater.on('checking-for-update', () => {
+    mainWindow.webContents.send('updater:status', { status: 'checking' })
+})
+autoUpdater.on('update-available', (info) => {
+    mainWindow.webContents.send('updater:status', { status: 'available', info })
+})
+autoUpdater.on('update-not-available', (info) => {
+    mainWindow.webContents.send('updater:status', { status: 'not-available', info })
+})
+autoUpdater.on('error', (err) => {
+    mainWindow.webContents.send('updater:status', { status: 'error', error: err.message })
+})
+autoUpdater.on('download-progress', (progressObj) => {
+    mainWindow.webContents.send('updater:status', { status: 'downloading', progress: progressObj })
+})
+autoUpdater.on('update-downloaded', (info) => {
+    mainWindow.webContents.send('updater:status', { status: 'downloaded', info })
+})
+
 ipcMain.handle('dialog:openFile', async () => {
     const result = await dialog.showOpenDialog({
         properties: ['openFile']
@@ -217,6 +327,10 @@ ipcMain.handle('dialog:openFile', async () => {
         return null
     }
     return result.filePaths[0]
+})
+
+ipcMain.handle('app:getVersion', () => {
+    return app.getVersion()
 })
 
 // --- Auth Handlers ---
