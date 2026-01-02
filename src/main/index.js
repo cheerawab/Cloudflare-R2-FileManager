@@ -1,14 +1,14 @@
 import { app, shell, BrowserWindow, ipcMain } from 'electron'
-import { join } from 'path'
+const path = require('path')
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 
-import { S3Client, ListBucketsCommand, ListObjectsV2Command, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3'
+import { S3Client, ListBucketsCommand, ListObjectsV2Command, PutObjectCommand, GetObjectCommand, DeleteObjectsCommand, DeleteObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner"
 import Store from 'electron-store'
 const fs = require('fs')
 const mime = require('mime-types')
 const { dialog } = require('electron')
-const { DeleteObjectCommand } = require('@aws-sdk/client-s3')
+
 const { Upload } = require('@aws-sdk/lib-storage')
 const { autoUpdater } = require('electron-updater')
 const log = require('electron-log')
@@ -23,7 +23,7 @@ try {
         autoUpdater.forceDevUpdateConfig = true
         // Mock APPIMAGE env for Linux dev to bypass strict check
         if (process.platform === 'linux' && !process.env.APPIMAGE) {
-            process.env.APPIMAGE = join(__dirname, '../../dist/Mock.AppImage')
+            process.env.APPIMAGE = path.join(__dirname, '../../dist/Mock.AppImage')
         }
     }
 } catch (e) {
@@ -44,10 +44,10 @@ function createWindow() {
         height: 670,
         show: false,
         autoHideMenuBar: true,
-        ...(process.platform === 'linux' || process.platform === 'win32' ? { icon: join(__dirname, '../../resources/icon.png') } : {}),
+        ...(process.platform === 'linux' || process.platform === 'win32' ? { icon: path.join(__dirname, '../../resources/icon.png') } : {}),
 
         webPreferences: {
-            preload: join(__dirname, '../preload/index.js'),
+            preload: path.join(__dirname, '../preload/index.js'),
             sandbox: false
         }
     })
@@ -66,7 +66,7 @@ function createWindow() {
     if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
         mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
     } else {
-        mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+        mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'))
     }
 }
 
